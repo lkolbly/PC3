@@ -3,10 +3,23 @@ from twisted.web.server import Site, resource
 from twisted.web.static import File
 from twisted.python import log
 import cgi, sys, os, subprocess, shutil
+import pymongo
 
 log.startLogging(sys.stdout)
 
 import re, StringIO, random, hashlib
+
+conn = pymongo.MongoClient("localhost", 27017)
+db = conn.pc3
+
+class DatabaseInterface:
+    def __init__(self, db):
+        self.db = db
+
+    def getProblem(self, problem_name):
+        return self.db.problems.find({"name": problem_name})
+
+dbi = DatabaseInterface(db)
 
 def call_command(cmd):
     output = ""
@@ -29,8 +42,10 @@ def handle_JavaWithRunner(runner_name):
     return (did_run, output)
 
 def run_program(directory, username, problem_id, filename):
-    # Normally, the problems are defined in a DB (mongo, MySQL, etc.)
-    problems = {"Song": {"type": "JavaWithRunner", "runner_name": "SongRunner"}}
+    problem = dbi.getProblem(problem_id)
+    if not problem:
+        print "There is no such file '%s'!"%problem_id
+        return False
 
     # Go deal with some file system stuff...
     filename, extension = (filename.split(".")[0], filename.split(".")[1])
@@ -39,9 +54,9 @@ def run_program(directory, username, problem_id, filename):
     print "Entering directory %s..."%directory
 
     output = ""
-    if problems[problem_id]["type"] == "JavaWithRunner":
-        shutil.copyfile("../../data/runners/%s.java"%problems[problem_id]["runner_name"], "./%s.java"%problems[problem_id]["runner_name"])
-        result = handle_JavaWithRunner(problems[problem_id]["runner_name"])
+    if problem["type"] == "JavaWithRunner":
+        shutil.copyfile("../../data/runners/%s.java"%problem["runner_name"], "./%s.java"%problem["runner_name"])
+        result = handle_JavaWithRunner(problem["runner_name"])
         output = result[1]
 
     os.chdir("../..")
