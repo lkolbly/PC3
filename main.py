@@ -4,12 +4,22 @@ from twisted.web.static import File
 from twisted.python import log
 import cgi, sys, os, subprocess, shutil
 import pymongo
+import jinja
 
 log.startLogging(sys.stdout)
 
 import re, StringIO, random, hashlib
 
-conn = pymongo.MongoClient("localhost", 27017)
+class Templater:
+    def __init__(self):
+        self.env = jinja.Environment(loader=jinja.FileSystemLoader("templates"))
+
+    def render(self, template_id, vars={}):
+        return str(self.env.get_template(template_id).render(vars))
+
+templator = Templater()
+
+conn = pymongo.MongoClient("hydroxide.local", 27017)
 db = conn.pc3
 
 class DatabaseInterface:
@@ -18,6 +28,18 @@ class DatabaseInterface:
 
     def getProblem(self, problem_name):
         return self.db.problems.find({"name": problem_name})
+
+    def getProblemList(self):
+        r = []
+        for p in self.db.problems.find():
+            r.append(p)
+        return r
+
+    def getUserList(self):
+        r = []
+        for u in self.db.users.find():
+            r.append(u)
+        return r
 
 dbi = DatabaseInterface(db)
 
@@ -111,10 +133,54 @@ class Root(resource.Resource):
             return UploadView()
         elif name == "static":
             return File("./static")
+        elif name == "admin":
+            return AdminView()
         return self
 
     def render_GET(self, request):
-        return open("./static/index.html").read()
+        #return open("./static/index.html").read()
+        return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
+
+# Check the type of user that is logged in
+def check_auth_type(request):
+    return "admin"
+
+def getFileFromRequest(request, field_name="upl_file"):
+    headers = request.getAllHeaders()
+
+    filename, extension = re.search(r'filename="(\w*).(\w*)"', request.content.read()).groups()
+
+    return (filename+"."+extension, request.args[field_name][0])
+
+class AdminView(resource.Resource):
+    isLeaf = True
+    def render_GET(self, request):
+        if check_auth_type(request) != "admin":
+            return "<html><body>You aren't authorized.</body></html>"
+
+        # Show the main admin page
+        return templator.render("admin.html")
+        return "<html><body>asdf</body></html>"
+
+    def render_POST(self, request):
+        if check_auth_type(request) != "admin":
+            return "<html><body>You aren't authorized.</body></html>"
+
+        action = request.args.get("action", [""])[0]
+        if action == "adduser":
+            username = request.args["username"][0]
+            password = request.args["password"][0]
+            t = request.args["type"][0]
+            db.users.insert({"username": username, "password": password, "type": t})
+            return "<html><body>Successfully added user '%s'!<br/><a href=''>Go Back</a></body></html>"%username
+        elif action == "addproblem":
+            name = request.args["name"][0]
+            runner_file = getFileFromRequest(request)
+            open("data/runners/%s"%runner_file[0], "w").write(runner_file[1])
+            db.problems.insert({"type": "JavaWithRunner", "name": name, "runner_name": runner_file[0].split(".")[0]})
+            return "<html><body>Successfully added problem '%s'!<br/><a href=''>Go Back</a></body></html>"%name
+
+        return "<html><body></body></html>"
 
 class UploadView(resource.Resource):
     isLeaf = True
