@@ -5,6 +5,7 @@ from twisted.python import log
 import cgi, sys, os, subprocess, shutil
 import pymongo
 import jinja
+from bson import ObjectId
 
 log.startLogging(sys.stdout)
 
@@ -27,11 +28,12 @@ class DatabaseInterface:
         self.db = db
 
     def getProblem(self, problem_name):
-        return self.db.problems.find({"name": problem_name})
+        return self.db.problems.find_one({"_id": ObjectId(problem_name)})
 
     def getProblemList(self):
         r = []
         for p in self.db.problems.find():
+            p["_id"] = str(p["_id"])
             r.append(p)
         return r
 
@@ -40,6 +42,22 @@ class DatabaseInterface:
         for u in self.db.users.find():
             r.append(u)
         return r
+
+    def addProgramOutput(self, username, problem_id, filepath, result):
+        self.db.results.insert({"username": username, "problem": problem_id,
+                                "code_filepath": filepath, "success": result[0],
+                                "output": result[1]})
+        pass
+
+    def getProgramOutput(self, username=None, problem_id=None, result=None):
+        search = {}
+        if username:
+            search["username"] = username
+        if problem_id:
+            search["problem"] = problem_id
+        if result:
+            search["success"] = result
+        return self.db.results.find(search)
 
 dbi = DatabaseInterface(db)
 
@@ -52,11 +70,13 @@ def call_command(cmd):
         return (False, output)
     return (True, output)
 
-def handle_JavaWithRunner(runner_name):
+def handle_JavaWithRunner(filename, runner_name):
     output = ""
     did_run = True
     try:
-        output += subprocess.check_output(["javac", "%s.java"%runner_name], stderr=subprocess.STDOUT)
+        output += subprocess.check_output(["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
+        output += subprocess.check_output(["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
+        output += "FINISHED COMPILING...\n"
         output += subprocess.check_output(["java", "%s"%runner_name], stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         output += e.output
@@ -66,7 +86,7 @@ def handle_JavaWithRunner(runner_name):
 def run_program(directory, username, problem_id, filename):
     problem = dbi.getProblem(problem_id)
     if not problem:
-        print "There is no such file '%s'!"%problem_id
+        print "There is no such problem '%s'!"%problem_id
         return False
 
     # Go deal with some file system stuff...
@@ -76,13 +96,15 @@ def run_program(directory, username, problem_id, filename):
     print "Entering directory %s..."%directory
 
     output = ""
+    result = (False, "")
     if problem["type"] == "JavaWithRunner":
         shutil.copyfile("../../data/runners/%s.java"%problem["runner_name"], "./%s.java"%problem["runner_name"])
-        result = handle_JavaWithRunner(problem["runner_name"])
+        result = handle_JavaWithRunner(filename, problem["runner_name"])
         output = result[1]
 
     os.chdir("../..")
-    return output
+    dbi.addProgramOutput(username, problem_id, "%s/%s"%(directory,filename), result)
+    return result
 
 def run_program_old():
     # If it's a zip file, unzip it...
@@ -152,6 +174,18 @@ def getFileFromRequest(request, field_name="upl_file"):
 
     return (filename+"."+extension, request.args[field_name][0])
 
+class ResultsView(resource.Resource):
+    isLeaf = True
+    def render_GET(self, request):
+        v = {}
+        v["users"] = []
+        for u in dbi.getUserList():
+            d = {"username": u["username"], "results": []}
+            for r in dbi.getProgramOutput(username=u["username"]):
+                d["results"].append(r)
+            v["users"].append(d)
+        return templator.render("results.html", v)
+
 class AdminView(resource.Resource):
     isLeaf = True
     def render_GET(self, request):
@@ -206,7 +240,8 @@ class UploadView(resource.Resource):
         # Run it (or queue it for running, or whatever)
         #output = subprocess.check_output(["javac", "%s.java"%filename])
         #output += subprocess.check_output(["java", "%s"%filename])
-        output = run_program(d, username, problem_id, filename+"."+extension)
+        print "%s.%s"%(filename,extension)
+        output = run_program(d, username, problem_id, filename+"."+extension)[1]
 
         # Comb output to make it nicer for HTML-formatted output
         output = output.replace("<", "&lt;")

@@ -4,7 +4,7 @@
         method="post">
     file_foo: <input type="file" name="upl_file"><br/>
     Username: <select name="username">{% for user in users %}<option>{{ user.username }}</option>{% endfor %}</select><br/>
-    Problem: <select name="problem">{% for problem in problems %}<option>{{ problem.name }}</option>{% endfor %}</select><br/>
+    Problem: <select name="problem">{% for problem in problems %}<option value="{{ problem._id }}">{{ problem.name }}</option>{% endfor %}</select><br/>
     <input type="submit" value="submit">
 </form>
 </body>
