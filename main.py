@@ -6,6 +6,7 @@ import cgi, sys, os, subprocess, shutil
 import pymongo
 import jinja
 from bson import ObjectId
+import time
 
 log.startLogging(sys.stdout)
 
@@ -20,7 +21,7 @@ class Templater:
 
 templator = Templater()
 
-conn = pymongo.MongoClient("hydroxide.local", 27017)
+conn = pymongo.MongoClient("localhost", 27017)
 db = conn.pc3
 
 class DatabaseInterface:
@@ -60,6 +61,26 @@ class DatabaseInterface:
         return self.db.results.find(search)
 
 dbi = DatabaseInterface(db)
+
+class Plagiarism:
+    def __init__(self, project_name, load_existing_files=True):
+        self.project_name = project_name
+        self.needs_update = True
+        self.result_url = None
+        self.moss = moss.Moss(353538543, "java")
+
+        # Load all of the existing files
+        if load_existing_files:
+            pass
+
+    def addFile(self, filename, project_name, user_name):
+        self.moss.addFile(filename, project_name, user_name)
+        self.needs_update = True
+
+    def getResult(self):
+        if self.needs_update:
+            self.result_url = self.moss.upload()
+        return self.result_url
 
 def call_command(cmd):
     output = ""
@@ -103,7 +124,7 @@ def run_program(directory, username, problem_id, filename):
         output = result[1]
 
     os.chdir("../..")
-    dbi.addProgramOutput(username, problem_id, "%s/%s"%(directory,filename), result)
+    dbi.addProgramOutput(username, problem_id, "%s/%s.java"%(directory,filename), result, time.time())
     return result
 
 def run_program_old():

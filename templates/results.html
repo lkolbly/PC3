@@ -1,0 +1,12 @@
+<html>
+<body>
+{% for user in users %}
+<h2>{{ user.username }}</h2>
+<ul>
+{% for result in user.results %}
+<li>Result from problem {{ result.problem }} was {{ result.success }}</li>
+{% endfor %}
+</ul>
+{% endfor %}
+</body>
+</html>
