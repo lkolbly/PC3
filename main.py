@@ -60,7 +60,36 @@ class DatabaseInterface:
             search["success"] = result
         return self.db.results.find(search)
 
+    def getUserCookie(self, username=None, cookie=None):
+        search = {}
+        if username:
+            search["username"] = username
+        if cookie:
+            search["cookie"] = cookie
+        return self.db.cookies.find(search)
+
 dbi = DatabaseInterface(db)
+
+class User:
+    # If password and email are set, we create the user
+    def __init__(self, username, type=None, password=None, email=None):
+        self.username = username
+        if password is not None:
+            dbi.db.users.insert({"username": username, "password": password, "email": email, "type": type, "time_registered": time.time()})
+        pass
+
+    def getType(self):
+        user = dbi.db.users.find_one({"username": self.username})
+        return user["type"]
+
+    # TRY to login with said password
+    def login(self, password):
+        user = dbi.db.users.find_one({"username": self.username})
+        if user["password"] == password:
+            cookie = hashlib.sha256(random.choice(user["password"])+random.choice(self.username)+password+str(time.time())+str(random.random())).hexdigest()
+            dbi.db.cookies.insert({"username": self.username, "cookie": cookie})
+            return cookie
+        return None
 
 class Plagiarism:
     def __init__(self, project_name, load_existing_files=True):
@@ -194,15 +223,34 @@ class Root(resource.Resource):
             return File("./static")
         elif name == "admin":
             return AdminView()
+        elif name == "students":
+            return StudentView().getChild(request.prepath[1:], request)
+        elif name == "login":
+            return LoginView()
         return self
 
     def render_GET(self, request):
         #return open("./static/index.html").read()
+        return "<html><body>Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a></body></html>"
         return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
 
 # Check the type of user that is logged in
 def check_auth_type(request):
-    return "admin"
+    # Check for (student) authentication
+    if not request.getCookie("pc3-user"):
+        return ""
+    #if request.getCookie("pc3-auth") in dbi.getUserCookie(username=request.getCookie("pc3-user")):
+    cookies = dbi.getUserCookie(username=request.getCookie("pc3-user"))
+    for c in cookies:
+        if request.getCookie("pc3-auth") == c["cookie"]:
+            u = User(request.getCookie("pc3-user"))
+            return u.getType()
+    return ""
+
+def check_auth_username(request):
+    if check_auth_type(request) == "":
+        return None
+    return request.getCookie("pc3-user")
 
 def getFileFromRequest(request, field_name="upl_file"):
     headers = request.getAllHeaders()
@@ -210,6 +258,38 @@ def getFileFromRequest(request, field_name="upl_file"):
     filename, extension = re.search(r'filename="(\w*).(\w*)"', request.content.read()).groups()
 
     return (filename+"."+extension, request.args[field_name][0])
+
+class LoginView(resource.Resource):
+    def render_POST(self, request):
+        if "username" in request.args and "password" in request.args:
+            u = User(request.args["username"][0])
+            cookie = u.login(request.args["password"][0])
+            if cookie:
+                request.addCookie("pc3-user", request.args["username"][0])
+                request.addCookie("pc3-auth", cookie)
+                return "Welcome!"
+            else:
+                return "Too bad."
+        return "Ummm... How did you get here?"
+
+class AuthorizationErrorView(resource.Resource):
+    isLeaf = True
+    def render_GET(self, request):
+        return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"
+
+class StudentView(resource.Resource):
+    isLeaf = False
+    def getChild(self, name, request):
+        if check_auth_type(request) != "student":
+            return AuthorizationErrorView()
+        return self
+
+    def render_GET(self, request):
+        if "action" in request.args:
+            if request.args["action"][0] == "upload":
+                templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
+                pass
+        return "<html><body>Welcome, %s. You can:<br/>Submit something<br/>View my past submissions<br/></body></html>"%request.getCookie("pc3-user")
 
 class ResultsView(resource.Resource):
     isLeaf = True
@@ -227,7 +307,7 @@ class AdminView(resource.Resource):
     isLeaf = True
     def render_GET(self, request):
         if check_auth_type(request) != "admin":
-            return "<html><body>You aren't authorized.</body></html>"
+            return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"#"<html><body>You aren't authorized.</body></html>"
 
         # Show the main admin page
         return templator.render("admin.html")
@@ -235,7 +315,7 @@ class AdminView(resource.Resource):
 
     def render_POST(self, request):
         if check_auth_type(request) != "admin":
-            return "<html><body>You aren't authorized.</body></html>"
+            return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"#"<html><body>You aren't authorized.</body></html>"
 
         action = request.args.get("action", [""])[0]
         if action == "adduser":
@@ -255,7 +335,16 @@ class AdminView(resource.Resource):
 
 class UploadView(resource.Resource):
     isLeaf = True
+    def render_GET(self, request):
+        if check_auth_type(request) != "student":
+            return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"
+        return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
+
     def render_POST(self, request):
+        if check_auth_type(request) != "student":
+            return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"
+        username = check_auth_username(request)
+
         headers = request.getAllHeaders()
         #print request.args["upl_file"][0]
         #img = cgi.FieldStorage(fp=request.content, headers=headers, environ={"REQUEST": "POST", "CONTENT_TYPE": headers["content-type"]})
@@ -271,7 +360,6 @@ class UploadView(resource.Resource):
         out.write(request.args["upl_file"][0])
         out.close()
 
-        username = request.args["username"][0]
         problem_id = request.args["problem"][0]
 
         # Run it (or queue it for running, or whatever)
