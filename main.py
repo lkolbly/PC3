@@ -44,10 +44,10 @@ class DatabaseInterface:
             r.append(u)
         return r
 
-    def addProgramOutput(self, username, problem_id, filepath, result):
+    def addProgramOutput(self, username, problem_id, filepath, result, time):
         self.db.results.insert({"username": username, "problem": problem_id,
                                 "code_filepath": filepath, "success": result[0],
-                                "output": result[1]})
+                                "output": result[1], "time": time})
         pass
 
     def getProgramOutput(self, username=None, problem_id=None, result=None):
@@ -104,7 +104,23 @@ def handle_JavaWithRunner(filename, runner_name):
         did_run = False
     return (did_run, output)
 
+import StringIO, json
+
 def run_program(directory, username, problem_id, filename):
+    #i = StringIO.StringIO("fdsa")
+
+    if False:
+        problem = dbi.getProblem(problem_id)
+        if not problem:
+            print "There is no such problem '%s'!"%problem_id
+            return False
+
+        open("/tmp/pc3", "w").write(json.dumps({"directory": directory, "lang": "JavaWithRunner", "filename": filename, "runner_name": problem["runner_name"]}))
+        shutil.copytree("root/%s"%directory, "chroot/tmp/%s"%directory)
+        shutil.copyfile("data/runners/%s.java"%problem["runner_name"], "./chroot/tmp/%s/%s.java"%(directory,problem["runner_name"]))
+        retval = subprocess.check_output("python run-program.py", stdin=open("/tmp/pc3"), shell=True)
+        return tuple(json.loads(retval))
+
     problem = dbi.getProblem(problem_id)
     if not problem:
         print "There is no such problem '%s'!"%problem_id
