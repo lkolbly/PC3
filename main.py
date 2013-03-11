@@ -91,6 +91,14 @@ class User:
             return cookie
         return None
 
+    # Clear the defined cookie, or all cookies associated with the username.
+    def logout(self, cookie=None):
+        spec = {"username": self.username}
+        if cookie:
+            spec["cookie"] = cookie
+        dbi.db.cookies.remove(spec)
+        pass
+
 class Plagiarism:
     def __init__(self, project_name, load_existing_files=True):
         self.project_name = project_name
@@ -227,11 +235,19 @@ class Root(resource.Resource):
             return StudentView().getChild(request.prepath[1:], request)
         elif name == "login":
             return LoginView()
+        elif name == "results":
+            return ResultsView()
         return self
 
     def render_GET(self, request):
         #return open("./static/index.html").read()
-        return "<html><body>Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a></body></html>"
+        if "logout" in request.args and check_auth_type(request) != "":
+            request.addCookie("pc3-user", "")
+            request.addCookie("pc3-cookie", "")
+            u = User(check_auth_username(request))
+            u.logout()
+            return "<html><body>You're logged out.</body></html>"
+        return "<html><body>Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a> or <a href='?logout=1'>Logout</a></body></html>"
         return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
 
 # Check the type of user that is logged in
@@ -289,11 +305,37 @@ class StudentView(resource.Resource):
             if request.args["action"][0] == "upload":
                 templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
                 pass
-        return "<html><body>Welcome, %s. You can:<br/>Submit something<br/>View my past submissions<br/></body></html>"%request.getCookie("pc3-user")
+        return "<html><body>Welcome, %s. You can:<br/><a href='/upload'>Submit something</a><br/>View my past submissions<br/></body></html>"%request.getCookie("pc3-user")
 
 class ResultsView(resource.Resource):
     isLeaf = True
+    def student(self, request, username):
+        s = ""
+        results = list(dbi.getProgramOutput(username=username))
+        problems = {}
+        for r in results:
+            if r["problem"] not in problems:
+                problems[r["problem"]] = [r]
+            else:
+                problems[r["problem"]].append(r)
+        for p_key,p in problems.items():
+            problem = dbi.getProblem(p_key)
+            if "name" not in problem:
+                continue # WTF?
+            s += "<h1>%s</h1>"%problem["name"]
+            s += "<ul>"
+            for r in p:
+                if r["success"]:
+                    s += "<li>Success at %f</li>"%r.get("time",0.0)
+                else:
+                    s += "<li>Failure at %f</li>"%r.get("time",0.0)
+                #s += "<li>%s</li>"%r
+            s += "</ul>"
+        return str("<html><body>Hello, %s. Here's your submissions:<br/>%s</body></html>"%(username, s))
+
     def render_GET(self, request):
+        if check_auth_type(request) == "student":
+            return self.student(request, check_auth_username(request))
         v = {}
         v["users"] = []
         for u in dbi.getUserList():
