@@ -1,10 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a> or <a href='?logout=1'>Logout</a>
-<!--<form action="/upload" enctype="multipart/form-data"
+<form action="/upload" enctype="multipart/form-data"
         method="post">
     file_foo: <input type="file" name="upl_file"><br/>
     Problem: <select name="problem">{% for problem in problems %}<option value="{{ problem._id }}">{{ problem.name }}</option>{% endfor %}</select><br/>
     <input type="submit" value="submit">
-</form>-->
+</form>
 {% endblock %}

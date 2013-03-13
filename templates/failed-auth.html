@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<p>You don't have permission to access this page.</p><br/>
+<form action='/login' method='POST'>
+  Username: <input type='text' name='username'/><br/>
+  Password: <input type='password' name='password'/><br/>
+  <input type='submit' name='login'/>
+</form>
+{% endblock %}

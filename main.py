@@ -44,10 +44,12 @@ class DatabaseInterface:
             r.append(u)
         return r
 
-    def addProgramOutput(self, username, problem_id, filepath, result, time):
+    def addProgramOutput(self, username, problem_id, filepath, result,
+                         directory, time):
         self.db.results.insert({"username": username, "problem": problem_id,
                                 "code_filepath": filepath, "success": result[0],
-                                "output": result[1], "time": time})
+                                "output": result[1], "time": time,
+                                "program_directory": directory})
         pass
 
     def getProgramOutput(self, username=None, problem_id=None, result=None):
@@ -177,7 +179,7 @@ def run_program(directory, username, problem_id, filename):
         output = result[1]
 
     os.chdir("../..")
-    dbi.addProgramOutput(username, problem_id, "%s/%s.java"%(directory,filename), result, time.time())
+    dbi.addProgramOutput(username, problem_id, "%s/%s.java"%(directory,filename), result, directory, time.time())
     return result
 
 def run_program_old():
@@ -247,7 +249,7 @@ class Root(resource.Resource):
             u = User(check_auth_username(request))
             u.logout()
             return "<html><body>You're logged out.</body></html>"
-        return "<html><body>Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a> or <a href='?logout=1'>Logout</a></body></html>"
+        #return "<html><body>Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a> or <a href='?logout=1'>Logout</a></body></html>"
         return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
 
 # Check the type of user that is logged in
@@ -283,6 +285,7 @@ class LoginView(resource.Resource):
             if cookie:
                 request.addCookie("pc3-user", request.args["username"][0])
                 request.addCookie("pc3-auth", cookie)
+                return templator.render("index.html")
                 return "Welcome!"
             else:
                 return "Too bad."
@@ -291,7 +294,8 @@ class LoginView(resource.Resource):
 class AuthorizationErrorView(resource.Resource):
     isLeaf = True
     def render_GET(self, request):
-        return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"
+        return templator.render("failed-auth.html")
+        #return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"#"<html><body>You aren't authorized.</body></html>"
 
 class StudentView(resource.Resource):
     isLeaf = False
@@ -303,8 +307,9 @@ class StudentView(resource.Resource):
     def render_GET(self, request):
         if "action" in request.args:
             if request.args["action"][0] == "upload":
-                templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
+                templator.render("upload.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
                 pass
+        return templator.render("student-main.html", {"username": request.getCookie("pc3-user")})
         return "<html><body>Welcome, %s. You can:<br/><a href='/upload'>Submit something</a><br/>View my past submissions<br/></body></html>"%request.getCookie("pc3-user")
 
 class ResultsView(resource.Resource):
@@ -349,7 +354,7 @@ class AdminView(resource.Resource):
     isLeaf = True
     def render_GET(self, request):
         if check_auth_type(request) != "admin":
-            return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"#"<html><body>You aren't authorized.</body></html>"
+            return templator.render("failed-auth.html")
 
         # Show the main admin page
         return templator.render("admin.html")
@@ -357,7 +362,7 @@ class AdminView(resource.Resource):
 
     def render_POST(self, request):
         if check_auth_type(request) != "admin":
-            return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"#"<html><body>You aren't authorized.</body></html>"
+            return templator.render("failed-auth.html")
 
         action = request.args.get("action", [""])[0]
         if action == "adduser":
@@ -379,12 +384,12 @@ class UploadView(resource.Resource):
     isLeaf = True
     def render_GET(self, request):
         if check_auth_type(request) != "student":
-            return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"
-        return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
+            return templator.render("failed-auth.html")
+        return templator.render("upload.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
 
     def render_POST(self, request):
         if check_auth_type(request) != "student":
-            return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"
+            return templator.render("failed-auth.html")
         username = check_auth_username(request)
 
         headers = request.getAllHeaders()
@@ -409,6 +414,11 @@ class UploadView(resource.Resource):
         #output += subprocess.check_output(["java", "%s"%filename])
         print "%s.%s"%(filename,extension)
         output = run_program(d, username, problem_id, filename+"."+extension)[1]
+
+        output = output.replace("<", "&lt;")
+        output = output.replace(">", "&gt;")
+        output = output.replace("\n", "<br/>")
+        return templator.render("read-output.html", {"program_output": output})
 
         # Comb output to make it nicer for HTML-formatted output
         output = output.replace("<", "&lt;")
