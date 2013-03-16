@@ -466,6 +466,14 @@ def main():
     reactor.listenTCP(8005, site)
     reactor.run()
 
+def signal_hup(signum, frame):
+    reactor.stop()
+    sys.exit(0)
+    pass
+
+import signal
+signal.signal(signal.SIGHUP, signal_hup)
+
 import argparse
 
 parser = argparse.ArgumentParser()
