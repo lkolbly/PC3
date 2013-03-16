@@ -7,10 +7,11 @@ import pymongo
 import jinja
 from bson import ObjectId
 import time
+import moss
 
 log.startLogging(sys.stdout)
 
-import re, StringIO, random, hashlib
+import re, StringIO, random, hashlib, base64
 
 class Templater:
     def __init__(self):
@@ -23,6 +24,15 @@ templator = Templater()
 
 conn = pymongo.MongoClient("localhost", 27017)
 db = conn.pc3
+
+def seedDatabase():
+    conn.copy_database("pc3", "pc3_%i"%int(time.time()))
+    conn.drop_database("pc3")
+    db = conn.pc3
+    pw = base64.b64encode(hashlib.md5("%.10f"%random.random()).digest())[0:10].replace("/", "S")
+    db.users.insert({"username": "root", "password": pw, "type": "admin"})
+    print "Set username/password to root/%s"%pw
+    pass
 
 class DatabaseInterface:
     def __init__(self, db):
@@ -239,6 +249,8 @@ class Root(resource.Resource):
             return LoginView()
         elif name == "results":
             return ResultsView()
+        elif name == "cheating":
+            return PlagiarismView()
         return self
 
     def render_GET(self, request):
@@ -350,6 +362,26 @@ class ResultsView(resource.Resource):
             v["users"].append(d)
         return templator.render("results.html", v)
 
+class PlagiarismView(resource.Resource):
+    isLeaf = True
+
+    # Ask the user how they want to dice the data
+    def render_GET(self, request):
+        if check_auth_type(request) != "admin":
+            return templator.render("failed-auth.html")
+        return templator.render("plagiarism-query.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
+
+    def render_POST(self, request):
+        # Go find a list of the successful results for this problem.
+        results = dbi.getProgramOutput(problem_id=request.args["problem"][0],
+                                       result=True)
+        p = Plagiarism(request.args["problem"][0], False)
+        for r in results:
+            p.addFile("root/"+r["code_filepath"], dbi.getProblem(r["problem"])["name"], r["username"])
+            pass
+        url = p.getResult()
+        return "<html><body>Look at <a href='%s'>%s</a></body></html>"%(url,url)
+
 class AdminView(resource.Resource):
     isLeaf = True
     def render_GET(self, request):
@@ -428,7 +460,20 @@ class UploadView(resource.Resource):
 
         return output
 
-root = Root()
-site = Site(root)
-reactor.listenTCP(8005, site)
-reactor.run()
+def main():
+    root = Root()
+    site = Site(root)
+    reactor.listenTCP(8005, site)
+    reactor.run()
+
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--reset-db", action="store_true")
+
+args = parser.parse_args()
+
+if args.reset_db:
+    seedDatabase()
+else:
+    main()
