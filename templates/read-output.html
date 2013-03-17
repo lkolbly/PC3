@@ -1,5 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
+{% if success %}
+Everything ran! Here's the output:<br/>
+{% else %}
+There was an error compiling or running the program:<br/>
+{% endif %}
 {{ program_output }}<br/>
+{% if need_match %}
+{% if matched %}
+Your program gave the correct output!<br/>
+{% else %}
+Your program didn't quite give the right output. Here's what I expect:<br/>
+{{ match }}
+{% endif %}
+{% endif %}
 <a href="/">Try again</a>
 {% endblock %}

@@ -34,6 +34,21 @@ def seedDatabase():
     print "Set username/password to root/%s"%pw
     pass
 
+def buildDirectories():
+    bak_dir = "bak-%s"%time.time()
+    os.mkdir(bak_dir)
+    if os.path.exists("data/"):
+        newdir = "%s/data"
+        os.mkdir(newdir)
+        shutil.move("data", newdir)
+    os.mkdir("data")
+    if os.path.exists("root/"):
+        newdir = "%s/root"%bak_dir
+        os.mkdir(newdir)
+        shutil.move("root", newdir)
+    os.mkdir("root")
+    pass
+
 class DatabaseInterface:
     def __init__(self, db):
         self.db = db
@@ -58,7 +73,8 @@ class DatabaseInterface:
                          directory, time):
         self.db.results.insert({"username": username, "problem": problem_id,
                                 "code_filepath": filepath, "success": result[0],
-                                "output": result[1], "time": time,
+                                "compiler_output": result[1],
+                                "output": result[2], "time": time,
                                 "program_directory": directory})
         pass
 
@@ -141,17 +157,18 @@ def call_command(cmd):
     return (True, output)
 
 def handle_JavaWithRunner(filename, runner_name):
+    compiler_output = ""
     output = ""
     did_run = True
     try:
-        output += subprocess.check_output(["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
-        output += subprocess.check_output(["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
-        output += "FINISHED COMPILING...\n"
+        compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
+        compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
+        #output += "FINISHED COMPILING...\n"
         output += subprocess.check_output(["java", "%s"%runner_name], stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        output += e.output
+        compiler_output += e.output
         did_run = False
-    return (did_run, output)
+    return (did_run, compiler_output, output)
 
 import StringIO, json
 
@@ -184,7 +201,7 @@ def run_program(directory, username, problem_id, filename):
     output = ""
     result = (False, "")
     if problem["type"] == "JavaWithRunner":
-        shutil.copyfile("../../data/runners/%s.java"%problem["runner_name"], "./%s.java"%problem["runner_name"])
+        shutil.copyfile("../../data/%s/%s.java"%(problem["directory"],problem["runner_name"]), "./%s.java"%problem["runner_name"])
         result = handle_JavaWithRunner(filename, problem["runner_name"])
         output = result[1]
 
@@ -282,12 +299,20 @@ def check_auth_username(request):
         return None
     return request.getCookie("pc3-user")
 
-def getFileFromRequest(request, field_name="upl_file"):
+def getFileFromRequest(request, field_name="upl_file", contents=None):
     headers = request.getAllHeaders()
 
-    filename, extension = re.search(r'filename="(\w*).(\w*)"', request.content.read()).groups()
+    if not contents:
+        header_content = request.content.read()
+    else:
+        header_content = contents
+    match = re.search(r'name="%s";\s*filename="([^\"]*)"'%field_name, header_content)
+    if match:
+        file_contents = match.groups()[0]
+    else:
+        return None
 
-    return (filename+"."+extension, request.args[field_name][0])
+    return (file_contents, request.args[field_name][0])
 
 class LoginView(resource.Resource):
     def render_POST(self, request):
@@ -405,9 +430,19 @@ class AdminView(resource.Resource):
             return "<html><body>Successfully added user '%s'!<br/><a href=''>Go Back</a></body></html>"%username
         elif action == "addproblem":
             name = request.args["name"][0]
-            runner_file = getFileFromRequest(request)
-            open("data/runners/%s"%runner_file[0], "w").write(runner_file[1])
-            db.problems.insert({"type": "JavaWithRunner", "name": name, "runner_name": runner_file[0].split(".")[0]})
+            form_contents = request.content.read()
+            runner_file = getFileFromRequest(request, contents=form_contents)
+            match_file = getFileFromRequest(request, "upl_match_file", contents=form_contents)
+            #print match_file
+            directory = hashlib.md5("%10f"%random.random()).hexdigest()
+            os.mkdir("data/%s/"%directory)
+            open("data/%s/%s"%(directory,runner_file[0]), "w").write(runner_file[1])
+            problem = {"type": "JavaWithRunner", "name": name, "runner_name": runner_file[0].split(".")[0], "directory": directory}
+            if match_file:
+                open("data/%s/match"%directory, "w").write(match_file[1])
+                problem["match"] = {"filename": "match"}
+                pass
+            db.problems.insert(problem)
             return "<html><body>Successfully added problem '%s'!<br/><a href=''>Go Back</a></body></html>"%name
 
         return "<html><body></body></html>"
@@ -445,12 +480,34 @@ class UploadView(resource.Resource):
         #output = subprocess.check_output(["javac", "%s.java"%filename])
         #output += subprocess.check_output(["java", "%s"%filename])
         print "%s.%s"%(filename,extension)
-        output = run_program(d, username, problem_id, filename+"."+extension)[1]
+        result = run_program(d, username, problem_id, filename+"."+extension)
+        if result[0]:
+            output = result[2]
+        else:
+            output = result[1] + result[2]
+
+        # Check to see if there was some sort of output we needed to match.
+        problem = dbi.getProblem(problem_id)
+        matched = True
+        match = ""
+        need_match = False
+        if "match" in problem and result[0]:
+            need_match = True
+            match = open("data/%s/%s"%(problem["directory"],problem["match"]["filename"])).read()
+            if output == match:
+                matched = True
+            else:
+                matched = False
+            pass
 
         output = output.replace("<", "&lt;")
         output = output.replace(">", "&gt;")
         output = output.replace("\n", "<br/>")
-        return templator.render("read-output.html", {"program_output": output})
+        return templator.render("read-output.html", {"program_output": output,
+                                                     "success": result[0],
+                                                     "matched": matched,
+                                                     "need_match":need_match,
+                                                     "match": match})
 
         # Comb output to make it nicer for HTML-formatted output
         output = output.replace("<", "&lt;")
@@ -483,5 +540,6 @@ args = parser.parse_args()
 
 if args.reset_db:
     seedDatabase()
+    buildDirectories()
 else:
     main()
