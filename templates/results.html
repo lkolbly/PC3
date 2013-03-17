@@ -1,5 +1,25 @@
-<html>
-<body>
+{% extends "base.html" %}
+{% block content %}
+{% if org == "student_by_problem" %}
+{% for p_key,r_set in results.iteritems() %}
+{% for r in r_set %}
+Submission at {{r.time}} for problem {{ problems[p_key].name }} was
+{% if r.success %}
+{% if problems[p_key].match.filename %}
+{% if r.matched %}successful{% else %}not successful{% endif %}
+{% else %}
+successful
+{% endif %}
+{% else %}
+Had an issue during either compilation or running
+{% endif %}
+[<a href="?result_id={{r.program_directory}}">View Output</a>]
+<br/>
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+{% if org == "teacher_by_user" %}
 {% for user in users %}
 <h2>{{ user.username }}</h2>
 <ul>
@@ -8,5 +28,5 @@
 {% endfor %}
 </ul>
 {% endfor %}
-</body>
-</html>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+{% if action equals "adduser" %}
+You have successfully added the user {{ username }}!<br/>
+{% endif %}
+{% if action equals "addproblem" %}
+You have successfully added the problem {{ problem_name }}!<br/>
+{% endif %}
+{% endblock %}

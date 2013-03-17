@@ -25,14 +25,26 @@ templator = Templater()
 conn = pymongo.MongoClient("localhost", 27017)
 db = conn.pc3
 
-def seedDatabase():
-    conn.copy_database("pc3", "pc3_%i"%int(time.time()))
-    conn.drop_database("pc3")
-    db = conn.pc3
-    pw = base64.b64encode(hashlib.md5("%.10f"%random.random()).digest())[0:10].replace("/", "S")
-    db.users.insert({"username": "root", "password": pw, "type": "admin"})
-    print "Set username/password to root/%s"%pw
-    pass
+def randomHash():
+    return hashlib.md5("%s"%random.getrandbits(128)).hexdigest()
+
+# Note: random_hash_fn MUST be constant-length
+def findCollision(random_hash_fn=randomHash, max_d_size=100000000):
+    depth = 1
+    for depth in range(len(random_hash_fn())):
+        d = set()
+        n = 0
+        while 1:
+            n += 1
+            h = random_hash_fn()[:depth]
+            if h not in d:
+                d.add(h)
+            else:
+                print "Collision at depth=%i, n=%i, h=%s"%(depth, n, h)
+                break
+            if n > max_d_size:
+                print "depth=%i No collision found after %i iterations."%(depth,n)
+                break
 
 def buildDirectories():
     bak_dir = "bak-%s"%time.time()
@@ -78,7 +90,7 @@ class DatabaseInterface:
                                 "program_directory": directory})
         pass
 
-    def getProgramOutput(self, username=None, problem_id=None, result=None):
+    def getProgramOutput(self, username=None, problem_id=None, result=None, directory=None):
         search = {}
         if username:
             search["username"] = username
@@ -86,6 +98,8 @@ class DatabaseInterface:
             search["problem"] = problem_id
         if result:
             search["success"] = result
+        if directory:
+            search["program_directory"] = directory
         return self.db.results.find(search)
 
     def getUserCookie(self, username=None, cookie=None):
@@ -95,6 +109,10 @@ class DatabaseInterface:
         if cookie:
             search["cookie"] = cookie
         return self.db.cookies.find(search)
+
+    def setResultMatched(self, directory, matched):
+        self.db.results.update({"program_directory": directory}, {"$set": {"matched": matched}})
+        pass
 
 dbi = DatabaseInterface(db)
 
@@ -126,6 +144,15 @@ class User:
             spec["cookie"] = cookie
         dbi.db.cookies.remove(spec)
         pass
+
+def seedDatabase():
+    conn.copy_database("pc3", "pc3_%i"%int(time.time()))
+    conn.drop_database("pc3")
+    db = conn.pc3
+    pw = base64.b64encode(randomHash())[0:10].replace("/", "S")
+    User("root", "admin", pw)
+    print "Set username/password to root/%s"%pw
+    pass
 
 class Plagiarism:
     def __init__(self, project_name, load_existing_files=True):
@@ -163,7 +190,7 @@ def handle_JavaWithRunner(filename, runner_name):
     try:
         compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
         compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
-        #output += "FINISHED COMPILING...\n"
+
         output += subprocess.check_output(["java", "%s"%runner_name], stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         compiler_output += e.output
@@ -175,7 +202,7 @@ import StringIO, json
 def run_program(directory, username, problem_id, filename):
     #i = StringIO.StringIO("fdsa")
 
-    if False:
+    if False: # If we ever want to consider a chroot, this code is a start.
         problem = dbi.getProblem(problem_id)
         if not problem:
             print "There is no such problem '%s'!"%problem_id
@@ -192,7 +219,7 @@ def run_program(directory, username, problem_id, filename):
         print "There is no such problem '%s'!"%problem_id
         return False
 
-    # Go deal with some file system stuff...
+    # Enter the problem directory.
     filename, extension = (filename.split(".")[0], filename.split(".")[1])
     os.chdir("root")
     os.chdir(directory)
@@ -201,6 +228,7 @@ def run_program(directory, username, problem_id, filename):
     output = ""
     result = (False, "")
     if problem["type"] == "JavaWithRunner":
+        # Copy in the runner, and run the program.
         shutil.copyfile("../../data/%s/%s.java"%(problem["directory"],problem["runner_name"]), "./%s.java"%problem["runner_name"])
         result = handle_JavaWithRunner(filename, problem["runner_name"])
         output = result[1]
@@ -271,14 +299,12 @@ class Root(resource.Resource):
         return self
 
     def render_GET(self, request):
-        #return open("./static/index.html").read()
         if "logout" in request.args and check_auth_type(request) != "":
             request.addCookie("pc3-user", "")
             request.addCookie("pc3-cookie", "")
             u = User(check_auth_username(request))
             u.logout()
             return "<html><body>You're logged out.</body></html>"
-        #return "<html><body>Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a> or <a href='?logout=1'>Logout</a></body></html>"
         return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
 
 # Check the type of user that is logged in
@@ -286,7 +312,6 @@ def check_auth_type(request):
     # Check for (student) authentication
     if not request.getCookie("pc3-user"):
         return ""
-    #if request.getCookie("pc3-auth") in dbi.getUserCookie(username=request.getCookie("pc3-user")):
     cookies = dbi.getUserCookie(username=request.getCookie("pc3-user"))
     for c in cookies:
         if request.getCookie("pc3-auth") == c["cookie"]:
@@ -332,7 +357,6 @@ class AuthorizationErrorView(resource.Resource):
     isLeaf = True
     def render_GET(self, request):
         return templator.render("failed-auth.html")
-        #return "<html><body>You don't have permission to access this page.<br/><form action='/login' method='POST'><input type='text' name='username'/><input type='password' name='password'/><input type='submit' name='submit'/></form></body></html>"#"<html><body>You aren't authorized.</body></html>"
 
 class StudentView(resource.Resource):
     isLeaf = False
@@ -347,19 +371,25 @@ class StudentView(resource.Resource):
                 templator.render("upload.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
                 pass
         return templator.render("student-main.html", {"username": request.getCookie("pc3-user")})
-        return "<html><body>Welcome, %s. You can:<br/><a href='/upload'>Submit something</a><br/>View my past submissions<br/></body></html>"%request.getCookie("pc3-user")
 
 class ResultsView(resource.Resource):
     isLeaf = True
     def student(self, request, username):
         s = ""
         results = list(dbi.getProgramOutput(username=username))
-        problems = {}
+        results_by_problem = {}
         for r in results:
-            if r["problem"] not in problems:
-                problems[r["problem"]] = [r]
+            if r["problem"] not in results_by_problem:
+                results_by_problem[r["problem"]] = [r]
             else:
-                problems[r["problem"]].append(r)
+                results_by_problem[r["problem"]].append(r)
+        problems = {}
+        for p_key,p in results_by_problem.items():
+            problems[p_key] = dbi.getProblem(p_key)
+        print results_by_problem, problems
+        return templator.render("results.html", {"org": "student_by_problem",
+                                                 "results": results_by_problem,
+                                                 "problems": problems})
         for p_key,p in problems.items():
             problem = dbi.getProblem(p_key)
             if "name" not in problem:
@@ -375,7 +405,33 @@ class ResultsView(resource.Resource):
             s += "</ul>"
         return str("<html><body>Hello, %s. Here's your submissions:<br/>%s</body></html>"%(username, s))
 
+    def result(self, result_id):
+        output = dbi.getProgramOutput(directory=result_id)[0]
+        problem = dbi.getProblem(output["problem"])
+        matched = True
+        match = ""
+        need_match = False
+        if "match" in problem and output["success"]:
+            matched = output["matched"]
+            need_match = True
+
+        if not output["success"]:
+            outputs = output["compiler_output"] + output["output"]
+        else:
+            outputs = output["output"]
+        outputs = outputs.replace("<", "&lt;")
+        outputs = outputs.replace(">", "&gt;")
+        outputs = outputs.replace("\n", "<br/>")
+        return templator.render("read-output.html", {"program_output": outputs,
+                                                     "success": output["success"],
+                                                     "matched": matched,
+                                                     "need_match": need_match,
+                                                     "match": match})
+
     def render_GET(self, request):
+        if "result_id" in request.args:
+            return self.result(request.args["result_id"][0])
+
         if check_auth_type(request) == "student":
             return self.student(request, check_auth_username(request))
         v = {}
@@ -385,6 +441,7 @@ class ResultsView(resource.Resource):
             for r in dbi.getProgramOutput(username=u["username"]):
                 d["results"].append(r)
             v["users"].append(d)
+        v["org"] = "teacher_by_user"
         return templator.render("results.html", v)
 
 class PlagiarismView(resource.Resource):
@@ -427,14 +484,15 @@ class AdminView(resource.Resource):
             password = request.args["password"][0]
             t = request.args["type"][0]
             db.users.insert({"username": username, "password": password, "type": t})
-            return "<html><body>Successfully added user '%s'!<br/><a href=''>Go Back</a></body></html>"%username
+            return templator.render("admin-action.html", {"action": "adduser",
+                                                          "username": username})
         elif action == "addproblem":
             name = request.args["name"][0]
             form_contents = request.content.read()
             runner_file = getFileFromRequest(request, contents=form_contents)
             match_file = getFileFromRequest(request, "upl_match_file", contents=form_contents)
             #print match_file
-            directory = hashlib.md5("%10f"%random.random()).hexdigest()
+            directory = randomHash()
             os.mkdir("data/%s/"%directory)
             open("data/%s/%s"%(directory,runner_file[0]), "w").write(runner_file[1])
             problem = {"type": "JavaWithRunner", "name": name, "runner_name": runner_file[0].split(".")[0], "directory": directory}
@@ -443,7 +501,8 @@ class AdminView(resource.Resource):
                 problem["match"] = {"filename": "match"}
                 pass
             db.problems.insert(problem)
-            return "<html><body>Successfully added problem '%s'!<br/><a href=''>Go Back</a></body></html>"%name
+            return templator.render("admin-action.html", {"action": addproblem,
+                                                          "problem_name": name})
 
         return "<html><body></body></html>"
 
@@ -460,14 +519,10 @@ class UploadView(resource.Resource):
         username = check_auth_username(request)
 
         headers = request.getAllHeaders()
-        #print request.args["upl_file"][0]
-        #img = cgi.FieldStorage(fp=request.content, headers=headers, environ={"REQUEST": "POST", "CONTENT_TYPE": headers["content-type"]})
-        #print headers, img, img.getlist("username")
 
         filename, extension = re.search(r'filename="(\w*).(\w*)"', request.content.read()).groups()
 
-        d = random.random()
-        d = hashlib.md5("%.10f"%d).hexdigest()
+        d = randomHash()
         os.mkdir("root/%s"%d)
 
         out = open("root/%s/%s.%s"%(d,filename,extension), "wb")
@@ -477,8 +532,6 @@ class UploadView(resource.Resource):
         problem_id = request.args["problem"][0]
 
         # Run it (or queue it for running, or whatever)
-        #output = subprocess.check_output(["javac", "%s.java"%filename])
-        #output += subprocess.check_output(["java", "%s"%filename])
         print "%s.%s"%(filename,extension)
         result = run_program(d, username, problem_id, filename+"."+extension)
         if result[0]:
@@ -498,6 +551,7 @@ class UploadView(resource.Resource):
                 matched = True
             else:
                 matched = False
+            dbi.setResultMatched(d, matched)
             pass
 
         output = output.replace("<", "&lt;")
@@ -508,14 +562,6 @@ class UploadView(resource.Resource):
                                                      "matched": matched,
                                                      "need_match":need_match,
                                                      "match": match})
-
-        # Comb output to make it nicer for HTML-formatted output
-        output = output.replace("<", "&lt;")
-        output = output.replace(">", "&gt;")
-        output = output.replace("\n", "<br/>")
-        output = "<html><body>%s<br/><a href=\"/\">Try again</a></body></html>"%output
-
-        return output
 
 def main():
     root = Root()
@@ -535,11 +581,14 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--reset-db", action="store_true")
+parser.add_argument("--find-collision", action="store_true")
 
 args = parser.parse_args()
 
 if args.reset_db:
     seedDatabase()
     buildDirectories()
+elif args.find_collision:
+    findCollision()
 else:
     main()
