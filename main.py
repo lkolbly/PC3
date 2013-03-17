@@ -82,11 +82,12 @@ class DatabaseInterface:
         return r
 
     def addProgramOutput(self, username, problem_id, filepath, result,
-                         directory, time):
+                         directory, time, runtime):
         self.db.results.insert({"username": username, "problem": problem_id,
                                 "code_filepath": filepath, "success": result[0],
                                 "compiler_output": result[1],
                                 "output": result[2], "time": time,
+                                "runtime": runtime,
                                 "program_directory": directory})
         pass
 
@@ -187,15 +188,19 @@ def handle_JavaWithRunner(filename, runner_name):
     compiler_output = ""
     output = ""
     did_run = True
+    runtime = 0.0
     try:
         compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
         compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
 
+        start_time = time.time()
         output += subprocess.check_output(["java", "%s"%runner_name], stderr=subprocess.STDOUT)
+        end_time = time.time()
+        runtime = end_time-start_time
     except subprocess.CalledProcessError as e:
         compiler_output += e.output
         did_run = False
-    return (did_run, compiler_output, output)
+    return (did_run, compiler_output, output, runtime)
 
 import StringIO, json
 
@@ -234,7 +239,7 @@ def run_program(directory, username, problem_id, filename):
         output = result[1]
 
     os.chdir("../..")
-    dbi.addProgramOutput(username, problem_id, "%s/%s.java"%(directory,filename), result, directory, time.time())
+    dbi.addProgramOutput(username, problem_id, "%s/%s.java"%(directory,filename), result, directory, time.time(), result[3])
     return result
 
 def run_program_old():
@@ -426,7 +431,8 @@ class ResultsView(resource.Resource):
                                                      "success": output["success"],
                                                      "matched": matched,
                                                      "need_match": need_match,
-                                                     "match": match})
+                                                     "match": match,
+                                                     "result": output})
 
     def render_GET(self, request):
         if "result_id" in request.args:

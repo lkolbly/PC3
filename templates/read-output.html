@@ -11,8 +11,11 @@ There was an error compiling or running the program:<br/>
 Your program gave the correct output!<br/>
 {% else %}
 Your program didn't quite give the right output. Here's what I expect:<br/>
-{{ match }}
+{{ match }}<br/>
 {% endif %}
+{% endif %}
+{% if result.runtime is defined %}
+Runtime was {{ result.runtime }}<br/>
 {% endif %}
 <a href="/">Try again</a>
 {% endblock %}
