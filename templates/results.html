@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-{% if org == "student_by_problem" %}
+
+{% macro print_student(results, problems) %}
 {% for p_key,r_set in results.iteritems() %}
 {% for r in r_set %}
 Submission at {{r.time}} for problem {{ problems[p_key].name }} was
@@ -17,16 +18,16 @@ Had an issue during either compilation or running
 <br/>
 {% endfor %}
 {% endfor %}
+{% endmacro %}
+
+{% if org == "student_by_problem" %}
+{{ print_student(student.results, student.problems) }}
 {% endif %}
 
 {% if org == "teacher_by_user" %}
-{% for user in users %}
-<h2>{{ user.username }}</h2>
-<ul>
-{% for result in user.results %}
-<li>Result from problem {{ result.problem }} was {{ result.success }}</li>
-{% endfor %}
-</ul>
+{% for s in students %}
+<h1>Student {{ s.name }}</h1>
+{{ print_student(s.results, s.problems) }}
 {% endfor %}
 {% endif %}
 {% endblock %}

@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
-Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a> or <a href='?logout=1'>Logout</a>
+Go to the {% if usertype == "student" %}<a href="/students">main page</a>{% elif usertype == "admin" %}<a href="/admin">main page</a>{% else %}uh... login below:<br/>
+<form action='/login' method='POST'>
+  Username: <input type='text' name='username'/><br/>
+  Password: <input type='password' name='password'/><br/>
+  <input type='submit' name='login'/>
+</form>
+{% endif %}
+<!--Go to either <a href='students'>Students</a> or <a href='admin'>Administration</a> or <a href='?logout=1'>Logout</a>-->
 <!--<form action="/upload" enctype="multipart/form-data"
         method="post">
     file_foo: <input type="file" name="upl_file"><br/>

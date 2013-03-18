@@ -6,7 +6,7 @@ import cgi, sys, os, subprocess, shutil
 import pymongo
 import jinja
 from bson import ObjectId
-import time
+import datetime, time
 import moss
 
 log.startLogging(sys.stdout)
@@ -14,6 +14,7 @@ log.startLogging(sys.stdout)
 import re, StringIO, random, hashlib, base64
 
 class Templater:
+
     def __init__(self):
         self.env = jinja.Environment(loader=jinja.FileSystemLoader("templates"))
 
@@ -101,7 +102,11 @@ class DatabaseInterface:
             search["success"] = result
         if directory:
             search["program_directory"] = directory
-        return self.db.results.find(search)
+        l = list(self.db.results.find(search))
+        for p in l:
+            p["time"] = datetime.datetime.fromtimestamp(p["time"]).strftime("%Y-%m-%d")
+            pass
+        return l
 
     def getUserCookie(self, username=None, cookie=None):
         search = {}
@@ -190,6 +195,7 @@ def handle_JavaWithRunner(filename, runner_name):
     did_run = True
     runtime = 0.0
     try:
+        CHUSER = []#["sudo","-u","pc3-user"]
         compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
         compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
 
@@ -213,10 +219,14 @@ def run_program(directory, username, problem_id, filename):
             print "There is no such problem '%s'!"%problem_id
             return False
 
-        open("/tmp/pc3", "w").write(json.dumps({"directory": directory, "lang": "JavaWithRunner", "filename": filename, "runner_name": problem["runner_name"]}))
+        #open("/tmp/pc3", "w").write(json.dumps({"directory": directory, "lang": "JavaWithRunner", "filename": filename, "runner_name": problem["runner_name"]}))
+        open("/tmp/pc3", "w").write(directory)
         shutil.copytree("root/%s"%directory, "chroot/tmp/%s"%directory)
         shutil.copyfile("data/runners/%s.java"%problem["runner_name"], "./chroot/tmp/%s/%s.java"%(directory,problem["runner_name"]))
-        retval = subprocess.check_output("python run-program.py", stdin=open("/tmp/pc3"), shell=True)
+        open("chroot/tmp/%s/pc3-config"%directory, "w").write(json.dumps({"directory": directory, "lang": "JavaWithRunner", "filename": filename, "runner_name": problem["runner_name"]}))
+        #os.chdir("chroot/tmp/%s"%directory)
+        retval = subprocess.check_output("python run-program.py", stdin=open("/tmp/pc3"), stderr=open("err.log", "w"), shell=True)
+        #os.chdir("../../..")
         return tuple(json.loads(retval))
 
     problem = dbi.getProblem(problem_id)
@@ -301,6 +311,10 @@ class Root(resource.Resource):
             return ResultsView()
         elif name == "cheating":
             return PlagiarismView()
+        if check_auth_type(request) == "admin":
+            return AdminView()
+        if check_auth_type(request) == "student":
+            return StudentView()
         return self
 
     def render_GET(self, request):
@@ -309,8 +323,9 @@ class Root(resource.Resource):
             request.addCookie("pc3-cookie", "")
             u = User(check_auth_username(request))
             u.logout()
+            return templator.render("index.html")
             return "<html><body>You're logged out.</body></html>"
-        return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList()})
+        return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList(), "usertype": check_auth_type(request)})
 
 # Check the type of user that is logged in
 def check_auth_type(request):
@@ -352,9 +367,10 @@ class LoginView(resource.Resource):
             if cookie:
                 request.addCookie("pc3-user", request.args["username"][0])
                 request.addCookie("pc3-auth", cookie)
-                return templator.render("index.html")
+                return templator.render("index.html", {"usertype": u.getType()})
                 return "Welcome!"
             else:
+                return templator.render("index.html")
                 return "Too bad."
         return "Ummm... How did you get here?"
 
@@ -391,7 +407,8 @@ class ResultsView(resource.Resource):
         problems = {}
         for p_key,p in results_by_problem.items():
             problems[p_key] = dbi.getProblem(p_key)
-        print results_by_problem, problems
+        #print results_by_problem, problems
+        return {"results": results_by_problem, "problems": problems}
         return templator.render("results.html", {"org": "student_by_problem",
                                                  "results": results_by_problem,
                                                  "problems": problems})
@@ -437,9 +454,29 @@ class ResultsView(resource.Resource):
     def render_GET(self, request):
         if "result_id" in request.args:
             return self.result(request.args["result_id"][0])
+        if "source_id" in request.args:
+            result = dbi.getProgramOutput(directory=request.args["source_id"][0])[0]
+            fname = "root/%s"%result["code_filepath"]
+            outputs = open(fname).read()
+            outputs = outputs.replace("<", "&lt;")
+            outputs = outputs.replace(">", "&gt;")
+            return templator.render("view-source.html", {"result": result, "source_code": outputs})
 
         if check_auth_type(request) == "student":
-            return self.student(request, check_auth_username(request))
+            #return self.student(request, check_auth_username(request))
+            v = {}
+            v["org"] = "student_by_problem"
+            v["student"] = self.student(request, check_auth_username(request))
+            #print v
+            return templator.render("results.html", v)
+        v = {}
+        v["org"] = "teacher_by_user"
+        v["students"] = []
+        for u in dbi.getUserList():
+            s = self.student(request, u["username"])
+            s["name"] = u["username"]
+            v["students"].append(s)
+        return templator.render("results.html", v)
         v = {}
         v["users"] = []
         for u in dbi.getUserList():

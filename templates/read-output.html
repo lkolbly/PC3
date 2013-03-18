@@ -5,7 +5,7 @@ Everything ran! Here's the output:<br/>
 {% else %}
 There was an error compiling or running the program:<br/>
 {% endif %}
-{{ program_output }}<br/>
+<pre>{{ program_output }}</pre><br/>
 {% if need_match %}
 {% if matched %}
 Your program gave the correct output!<br/>
@@ -15,7 +15,7 @@ Your program didn't quite give the right output. Here's what I expect:<br/>
 {% endif %}
 {% endif %}
 {% if result.runtime is defined %}
-Runtime was {{ result.runtime }}<br/>
+Runtime was {{ result.runtime }} seconds<br/>
 {% endif %}
-<a href="/">Try again</a>
+<a href="/">Try again</a> <a href="?source_id={{ result.program_directory }}">View Source</a> <a href="/results">Back to all problems</a>
 {% endblock %}
