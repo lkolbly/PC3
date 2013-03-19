@@ -51,14 +51,13 @@ def buildDirectories():
     bak_dir = "bak-%s"%time.time()
     os.mkdir(bak_dir)
     if os.path.exists("data/"):
-        newdir = "%s/data"
-        os.mkdir(newdir)
-        shutil.move("data", newdir)
+        shutil.move("data", bak_dir)
     os.mkdir("data")
     if os.path.exists("root/"):
-        newdir = "%s/root"%bak_dir
-        os.mkdir(newdir)
-        shutil.move("root", newdir)
+        shutil.move("root", bak_dir)
+        f = os.open("root")
+        if RUN_AS_GID != -1:
+            os.fchown(f, -1, RUN_AS_GID)
     os.mkdir("root")
     pass
 
@@ -189,18 +188,22 @@ def call_command(cmd):
         return (False, output)
     return (True, output)
 
+RUN_AS_USER = "pc3-user" # Username
+
 def handle_JavaWithRunner(filename, runner_name):
     compiler_output = ""
     output = ""
     did_run = True
     runtime = 0.0
     try:
-        CHUSER = []#["sudo","-u","pc3-user"]
-        compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
-        compiler_output += subprocess.check_output(["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
+        CHUSER = ""#["sudo","-u","pc3-user"]
+        if RUN_AS_USER:
+            CHUSER = ["/usr/bin/sudo","-u","%s"%RUN_AS_USER]
+        compiler_output += subprocess.check_output(CHUSER+["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
+        compiler_output += subprocess.check_output(CHUSER+["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
 
         start_time = time.time()
-        output += subprocess.check_output(["java", "%s"%runner_name], stderr=subprocess.STDOUT)
+        output += subprocess.check_output(CHUSER+["java", "%s"%runner_name], stderr=subprocess.STDOUT)
         end_time = time.time()
         runtime = end_time-start_time
     except subprocess.CalledProcessError as e:
@@ -212,6 +215,17 @@ import StringIO, json
 
 def run_program(directory, username, problem_id, filename):
     #i = StringIO.StringIO("fdsa")
+
+    if True:
+        problem = dbi.getProblem(problem_id)
+        if not problem:
+            print "There is no such problem '%s'!"%problem_id
+            return False
+        open("root/%s/pc3-config"%directory, "w").write(json.dumps({"directory": directory, "lang": "JavaWithRunner", "filename": filename, "runner_name": problem["runner_name"]}))
+        open("/tmp/pc3", "w").write(directory)
+        #shutil.copyfile("data/runners/%s.java"%problem["runner_name"], "./run-dir/%s/%s.java"%(directory,problem["runner_name"]))
+        retval = json.loads(subprocess.check_output("sudo -u pc3-user python run-program.py", stdin=open("/tmp/pc3"), stderr=open("log.err", "w"), shell=True))
+        return retval
 
     if False: # If we ever want to consider a chroot, this code is a start.
         problem = dbi.getProblem(problem_id)
@@ -567,6 +581,11 @@ class UploadView(resource.Resource):
 
         d = randomHash()
         os.mkdir("root/%s"%d)
+        f = os.open("root/%s"%d, os.O_DIRECTORY)
+        RUN_AS_GID = -1
+        if RUN_AS_GID != -1:
+            #os.fchown(f, -1, RUN_AS_GID)
+            pass
 
         out = open("root/%s/%s.%s"%(d,filename,extension), "wb")
         out.write(request.args["upl_file"][0])
