@@ -378,6 +378,26 @@ class ResultsView(resource.Resource):
             s = self.student(request, u["username"])
             s["name"] = u["username"]
             v["students"].append(s)
+
+        output_format = request.args.get("format", ["html"])[0]
+        if output_format == "csv":
+            contents = StringIO.StringIO()
+            writer = csv.writer(contents)
+            writer.writerow(["username", "success", "runtime", "time submitted", "problem name"])
+            for s in v["students"]:
+                # Find the most recent problem
+                for p_id, p in s["problems"].items():
+                    problem = None
+                    for r in s["results"][p_id]:
+                        if problem == None:
+                            problem = r
+                        if r["time"] > problem["time"]:
+                            problem = r
+
+                    writer.writerow([s["name"], problem["success"], problem["runtime"], problem["time"], s["problems"][problem["problem"]]["name"]])
+            request.setHeader("Content-Type", "text/csv")
+            request.setHeader("Content-Disposition", "filename=result.csv")
+            return contents.getvalue()
         return templator.render("results.html", v)
 
 class PlagiarismView(resource.Resource):
