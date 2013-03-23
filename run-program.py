@@ -34,27 +34,3 @@ def handle_JavaWithRunner(filename, runner_name):
     return (did_run, compiler_output, output, runtime)
 
 print json.dumps(handle_JavaWithRunner(config["filename"], config["runner_name"]))
-
-sys.exit(0)
-
-os.chroot("chroot/")
-
-config = json.loads(open("/tmp/%s/pc3-config"%directory).read())
-
-# Now, run stuff....
-def handle_JavaWithRunner(filename, runner_name):
-    runtime = 0.0
-    compiler_output = ""
-    output = ""
-    did_run = True
-    try:
-        CHUSER = "sudo -u pc3-user"
-        compiler_output += subprocess.check_output([CHUSER, "javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
-        compiler_output += subprocess.check_output([CHUSER, "javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
-        output += subprocess.check_output([CHUSER, "java", "%s"%runner_name], stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        output += e.output
-        did_run = False
-    return (did_run, output, compiler_output, runtime)
-
-print json.dumps(handle_JavaWithRunner(config["filename"], config["runner_name"]))

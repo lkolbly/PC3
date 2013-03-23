@@ -8,13 +8,14 @@ import jinja
 from bson import ObjectId
 import datetime, time
 import moss
+import argparse
+import signal
+import re, StringIO, random, hashlib, base64
+import StringIO, json
 
 log.startLogging(sys.stdout)
 
-import re, StringIO, random, hashlib, base64
-
 class Templater:
-
     def __init__(self):
         self.env = jinja.Environment(loader=jinja.FileSystemLoader("templates"))
 
@@ -27,7 +28,7 @@ conn = pymongo.MongoClient("localhost", 27017)
 db = conn.pc3
 
 def randomHash():
-    return hashlib.md5("%s"%random.getrandbits(128)).hexdigest()
+    return hashlib.md5("%s%s"%(random.getrandbits(64),time.time())).hexdigest()
 
 # Note: random_hash_fn MUST be constant-length
 def findCollision(random_hash_fn=randomHash, max_d_size=100000000):
@@ -55,9 +56,6 @@ def buildDirectories():
     os.mkdir("data")
     if os.path.exists("root/"):
         shutil.move("root", bak_dir)
-        f = os.open("root")
-        if RUN_AS_GID != -1:
-            os.fchown(f, -1, RUN_AS_GID)
     os.mkdir("root")
     pass
 
@@ -190,126 +188,29 @@ def call_command(cmd):
 
 RUN_AS_USER = "pc3-user" # Username
 
-def handle_JavaWithRunner(filename, runner_name):
-    compiler_output = ""
-    output = ""
-    did_run = True
-    runtime = 0.0
-    try:
-        CHUSER = ""#["sudo","-u","pc3-user"]
-        if RUN_AS_USER:
-            CHUSER = ["/usr/bin/sudo","-u","%s"%RUN_AS_USER]
-        compiler_output += subprocess.check_output(CHUSER+["javac", "-C", "%s.java"%filename], stderr=subprocess.STDOUT)
-        compiler_output += subprocess.check_output(CHUSER+["javac", "-C", "%s.java"%runner_name], stderr=subprocess.STDOUT)
-
-        start_time = time.time()
-        output += subprocess.check_output(CHUSER+["java", "%s"%runner_name], stderr=subprocess.STDOUT)
-        end_time = time.time()
-        runtime = end_time-start_time
-    except subprocess.CalledProcessError as e:
-        compiler_output += e.output
-        did_run = False
-    return (did_run, compiler_output, output, runtime)
-
-import StringIO, json
-
 def run_program(directory, username, problem_id, filename):
-    #i = StringIO.StringIO("fdsa")
-
-    if True:
-        problem = dbi.getProblem(problem_id)
-        if not problem:
-            print "There is no such problem '%s'!"%problem_id
-            return False
-        open("root/%s/pc3-config"%directory, "w").write(json.dumps({"directory": directory, "lang": "JavaWithRunner", "filename": filename, "runner_name": problem["runner_name"]}))
-        open("/tmp/pc3", "w").write(directory)
-        #shutil.copyfile("data/runners/%s.java"%problem["runner_name"], "./run-dir/%s/%s.java"%(directory,problem["runner_name"]))
-        retval = json.loads(subprocess.check_output("sudo -u pc3-user python run-program.py", stdin=open("/tmp/pc3"), stderr=open("log.err", "w"), shell=True))
-        return retval
-
-    if False: # If we ever want to consider a chroot, this code is a start.
-        problem = dbi.getProblem(problem_id)
-        if not problem:
-            print "There is no such problem '%s'!"%problem_id
-            return False
-
-        #open("/tmp/pc3", "w").write(json.dumps({"directory": directory, "lang": "JavaWithRunner", "filename": filename, "runner_name": problem["runner_name"]}))
-        open("/tmp/pc3", "w").write(directory)
-        shutil.copytree("root/%s"%directory, "chroot/tmp/%s"%directory)
-        shutil.copyfile("data/runners/%s.java"%problem["runner_name"], "./chroot/tmp/%s/%s.java"%(directory,problem["runner_name"]))
-        open("chroot/tmp/%s/pc3-config"%directory, "w").write(json.dumps({"directory": directory, "lang": "JavaWithRunner", "filename": filename, "runner_name": problem["runner_name"]}))
-        #os.chdir("chroot/tmp/%s"%directory)
-        retval = subprocess.check_output("python run-program.py", stdin=open("/tmp/pc3"), stderr=open("err.log", "w"), shell=True)
-        #os.chdir("../../..")
-        return tuple(json.loads(retval))
-
     problem = dbi.getProblem(problem_id)
     if not problem:
         print "There is no such problem '%s'!"%problem_id
         return False
-
-    # Enter the problem directory.
-    filename, extension = (filename.split(".")[0], filename.split(".")[1])
-    os.chdir("root")
-    os.chdir(directory)
-    print "Entering directory %s..."%directory
-
-    output = ""
-    result = (False, "")
-    if problem["type"] == "JavaWithRunner":
-        # Copy in the runner, and run the program.
-        shutil.copyfile("../../data/%s/%s.java"%(problem["directory"],problem["runner_name"]), "./%s.java"%problem["runner_name"])
-        result = handle_JavaWithRunner(filename, problem["runner_name"])
-        output = result[1]
-
-    os.chdir("../..")
-    dbi.addProgramOutput(username, problem_id, "%s/%s.java"%(directory,filename), result, directory, time.time(), result[3])
-    return result
-
-def run_program_old():
-    # If it's a zip file, unzip it...
-    output = ""
-    if extension == "zip":
-        #subprocess.check_output(["unzip", "%s.zip"%filename])
-        output = call_command("unzip %s.zip"%filename)[1]
-
-        # Compile all of the java files
-        has_error = False
-        for f in os.listdir("."):
-            if os.path.splitext(f)[1] == ".java":
-                retval = call_command("javac %s"%f)
-                if not retval[0]:
-                    output += retval[1]
-                    has_error = True
-                    break
-
-        if not has_error:
-            # Copy over the runner file
-            shutil("../../data/runners/SongRunner.java", ".")
-            output += call_command("java SongRunner.java")
-            pass
-
-        pass
-    else:
-        result = handle_JavaWithRunner()
-        output += result[1]
-        """
-        output = ""
-        try:
-            output += subprocess.check_output(["javac", "SongRunner.java"], stderr=subprocess.STDOUT)
-            output += subprocess.check_output(["java", "SongRunner"], stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError as e:
-            output += e.output
-            """
-
-    os.chdir("../..")
-    return output
+    open("root/%s/pc3-config"%directory, "w").write(json.dumps(
+            {"directory": directory,
+             "lang": "JavaWithRunner",
+             "filename": filename,
+             "runner_name": problem["runner_name"]}))
+    p = subprocess.Popen("sudo -u pc3-user python run-program.py", shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open("log.err", "a"))
+    retval = json.loads(p.communicate(directory)[0])
+    return retval
 
 class Root(resource.Resource):
     isLeaf = False
     def getChild(self, name, request):
         print "Name: %s"%name
         if name == "index.html" or name == "":
+            if check_auth_type(request) == "admin":
+                return AdminView()
+            if check_auth_type(request) == "student":
+                return StudentView()
             return self
         elif name == "upload":
             return UploadView()
@@ -338,7 +239,6 @@ class Root(resource.Resource):
             u = User(check_auth_username(request))
             u.logout()
             return templator.render("index.html")
-            return "<html><body>You're logged out.</body></html>"
         return templator.render("index.html", {"users": dbi.getUserList(), "problems": dbi.getProblemList(), "usertype": check_auth_type(request)})
 
 # Check the type of user that is logged in
@@ -379,13 +279,13 @@ class LoginView(resource.Resource):
             u = User(request.args["username"][0])
             cookie = u.login(request.args["password"][0])
             if cookie:
+                # Success
                 request.addCookie("pc3-user", request.args["username"][0])
                 request.addCookie("pc3-auth", cookie)
                 return templator.render("index.html", {"usertype": u.getType()})
-                return "Welcome!"
             else:
+                # Failed
                 return templator.render("index.html")
-                return "Too bad."
         return "Ummm... How did you get here?"
 
 class AuthorizationErrorView(resource.Resource):
@@ -423,23 +323,6 @@ class ResultsView(resource.Resource):
             problems[p_key] = dbi.getProblem(p_key)
         #print results_by_problem, problems
         return {"results": results_by_problem, "problems": problems}
-        return templator.render("results.html", {"org": "student_by_problem",
-                                                 "results": results_by_problem,
-                                                 "problems": problems})
-        for p_key,p in problems.items():
-            problem = dbi.getProblem(p_key)
-            if "name" not in problem:
-                continue # WTF?
-            s += "<h1>%s</h1>"%problem["name"]
-            s += "<ul>"
-            for r in p:
-                if r["success"]:
-                    s += "<li>Success at %f</li>"%r.get("time",0.0)
-                else:
-                    s += "<li>Failure at %f</li>"%r.get("time",0.0)
-                #s += "<li>%s</li>"%r
-            s += "</ul>"
-        return str("<html><body>Hello, %s. Here's your submissions:<br/>%s</body></html>"%(username, s))
 
     def result(self, result_id):
         output = dbi.getProgramOutput(directory=result_id)[0]
@@ -491,15 +374,6 @@ class ResultsView(resource.Resource):
             s["name"] = u["username"]
             v["students"].append(s)
         return templator.render("results.html", v)
-        v = {}
-        v["users"] = []
-        for u in dbi.getUserList():
-            d = {"username": u["username"], "results": []}
-            for r in dbi.getProgramOutput(username=u["username"]):
-                d["results"].append(r)
-            v["users"].append(d)
-        v["org"] = "teacher_by_user"
-        return templator.render("results.html", v)
 
 class PlagiarismView(resource.Resource):
     isLeaf = True
@@ -529,7 +403,6 @@ class AdminView(resource.Resource):
 
         # Show the main admin page
         return templator.render("admin.html")
-        return "<html><body>asdf</body></html>"
 
     def render_POST(self, request):
         if check_auth_type(request) != "admin":
@@ -540,11 +413,17 @@ class AdminView(resource.Resource):
             username = request.args["username"][0]
             password = request.args["password"][0]
             t = request.args["type"][0]
+            if db.users.find_one({"username": username}):
+                return templator.render("admin-action.html", {"action": "error",
+                                                              "error": "That user already exists."})
             db.users.insert({"username": username, "password": password, "type": t})
             return templator.render("admin-action.html", {"action": "adduser",
                                                           "username": username})
         elif action == "addproblem":
             name = request.args["name"][0]
+            if db.problems.find_one({"name": name}):
+                return templator.render("admin-action.html", {"action": "error",
+                                                              "error": "That user already exists."})
             form_contents = request.content.read()
             runner_file = getFileFromRequest(request, contents=form_contents)
             match_file = getFileFromRequest(request, "upl_match_file", contents=form_contents)
@@ -558,7 +437,7 @@ class AdminView(resource.Resource):
                 problem["match"] = {"filename": "match"}
                 pass
             db.problems.insert(problem)
-            return templator.render("admin-action.html", {"action": addproblem,
+            return templator.render("admin-action.html", {"action": "addproblem",
                                                           "problem_name": name})
 
         return "<html><body></body></html>"
@@ -581,11 +460,6 @@ class UploadView(resource.Resource):
 
         d = randomHash()
         os.mkdir("root/%s"%d)
-        f = os.open("root/%s"%d, os.O_DIRECTORY)
-        RUN_AS_GID = -1
-        if RUN_AS_GID != -1:
-            #os.fchown(f, -1, RUN_AS_GID)
-            pass
 
         out = open("root/%s/%s.%s"%(d,filename,extension), "wb")
         out.write(request.args["upl_file"][0])
@@ -636,10 +510,7 @@ def signal_hup(signum, frame):
     sys.exit(0)
     pass
 
-import signal
 signal.signal(signal.SIGHUP, signal_hup)
-
-import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--reset-db", action="store_true")
