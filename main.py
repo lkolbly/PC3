@@ -203,6 +203,8 @@ def run_program(directory, username, problem_id, filename):
              "runner_name": problem["runner_name"]}))
     p = subprocess.Popen("sudo -u pc3-user python run-program.py", shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = p.communicate(directory)
+    if stderr != "":
+        print "STDERR: %s"%stderr
     retval = json.loads(stdout)
     dbi.addProgramOutput(username, problem_id, "%s/%s"%(directory, filename), retval, directory, time.time(), retval[3])
     return retval
