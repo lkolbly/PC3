@@ -9,6 +9,15 @@
       <input type="submit" name="submit"/>
     </form>
 
+    <h2>Import Users</h2>
+    <form action="" enctype="multipart/form-data" method="post">
+      Import users from a CSV file with two columns: Username and password.<br/>
+      Note: Do not include a header in the CSV file. The first column is username, the second is password. If the password field is blank, it will be automatically generated.<br/>
+      CSV File: <input type="file" name="upl_file"/><br/>
+      <input type="hidden" name="action" value="importusers"/>
+      <input type="submit" value="submit"/>
+    </form>
+
     <h2>Add Problem (Java w/ runner)</h2>
     <form action="" enctype="multipart/form-data" method="post">
       Java runner file: <input type="file" name="upl_file"/><br/>

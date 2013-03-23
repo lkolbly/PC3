@@ -11,7 +11,7 @@ import moss
 import argparse
 import signal
 import re, StringIO, random, hashlib, base64
-import StringIO, json
+import StringIO, json, csv
 
 log.startLogging(sys.stdout)
 
@@ -29,6 +29,9 @@ db = conn.pc3
 
 def randomHash():
     return hashlib.md5("%s%s"%(random.getrandbits(64),time.time())).hexdigest()
+
+def randomPassword():
+    return base64.b64encode(randomHash())[0:10].replace("/", "S")
 
 # Note: random_hash_fn MUST be constant-length
 def findCollision(random_hash_fn=randomHash, max_d_size=100000000):
@@ -152,7 +155,7 @@ def seedDatabase():
     conn.copy_database("pc3", "pc3_%i"%int(time.time()))
     conn.drop_database("pc3")
     db = conn.pc3
-    pw = base64.b64encode(randomHash())[0:10].replace("/", "S")
+    pw = randomPassword()
     User("root", "admin", pw)
     print "Set username/password to root/%s"%pw
     pass
@@ -421,6 +424,24 @@ class AdminView(resource.Resource):
             db.users.insert({"username": username, "password": password, "type": t})
             return templator.render("admin-action.html", {"action": "adduser",
                                                           "username": username})
+        elif action == "importusers":
+            form_contents = request.content.read()
+            csv_file = getFileFromRequest(request, contents=form_contents)
+
+            # Alright, crunch the file
+            reader = csv.reader(StringIO.StringIO(csv_file[1]))
+            users = []
+            for row in reader:
+                # Add the user
+                pw = ""
+                if len(row) > 1:
+                    pw = row[1]
+                if pw == "":
+                    pw = randomPassword()
+                db.users.insert({"username": row[0], "password": pw})
+                users.append({"username": row[0], "password": pw})
+                pass
+            return templator.render("admin-action.html", {"action": "importusers", "users": users})
         elif action == "addproblem":
             name = request.args["name"][0]
             if db.problems.find_one({"name": name}):
