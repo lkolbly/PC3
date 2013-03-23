@@ -194,12 +194,14 @@ def run_program(directory, username, problem_id, filename):
         print "There is no such problem '%s'!"%problem_id
         return False
     open("root/%s/pc3-config"%directory, "w").write(json.dumps(
-            {"directory": directory,
+            {"program_directory": directory,
              "lang": "JavaWithRunner",
              "filename": filename,
              "runner_name": problem["runner_name"]}))
-    p = subprocess.Popen("sudo -u pc3-user python run-program.py", shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open("log.err", "a"))
-    retval = json.loads(p.communicate(directory)[0])
+    p = subprocess.Popen("sudo -u pc3-user python run-program.py", shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = p.communicate(directory)
+    retval = json.loads(stdout)
+    dbi.addProgramOutput(username, problem_id, "%s/%s"%(directory, filename), retval, directory, time.time(), retval[3])
     return retval
 
 class Root(resource.Resource):
@@ -490,6 +492,10 @@ class UploadView(resource.Resource):
             dbi.setResultMatched(d, matched)
             pass
 
+        result_doc = dbi.getProgramOutput(directory=d)
+        if len(result_doc) > 0:
+            result_doc = result_doc[0]
+
         output = output.replace("<", "&lt;")
         output = output.replace(">", "&gt;")
         output = output.replace("\n", "<br/>")
@@ -497,7 +503,8 @@ class UploadView(resource.Resource):
                                                      "success": result[0],
                                                      "matched": matched,
                                                      "need_match":need_match,
-                                                     "match": match})
+                                                     "match": match,
+                                                     "result": result_doc})
 
 def main():
     root = Root()

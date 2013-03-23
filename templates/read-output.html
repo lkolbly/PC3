@@ -17,5 +17,5 @@ Your program didn't quite give the right output. Here's what I expect:<br/>
 {% if result.runtime is defined %}
 Runtime was {{ result.runtime }} seconds<br/>
 {% endif %}
-<a href="/">Try again</a> <a href="?source_id={{ result.program_directory }}">View Source</a> <a href="/results">Back to all problems</a>
+<a href="/">Try again</a> <a href="/results?source_id={{ result.program_directory }}">View Source</a> <a href="/results">Back to all problems</a>
 {% endblock %}
