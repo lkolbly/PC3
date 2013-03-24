@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+
+<form action="" enctype="multipart/form-data" method="POST">
+  Problem Name: <b>{{ name }}</b><br/>
+  Problem Type: <b>{{ type }}</b><br/>
+  Language: <b>{{ language }}</b><br/>
+  {% if type == "runner" %}
+  Runner File: <input type="file" name="runner_file"/><br/>
+  Match File: <input type="file" name="match_file"/><br/>
+  {% elif type == "inputfiles" %}
+  Input File Archive: <input type="file" name="archive_file"/><br/>
+  {% endif %}
+  <input type="hidden" value="{{name}}" name="name"/>
+  <input type="hidden" name="type" value="{{type}}"/>
+  <input type="hidden" name="language" value="{{language}}"/>
+  <input type="hidden" name="action" value="submitproblem"/>
+  <input type="submit" value="submit"/>
+</form>
+
+{% endblock %}

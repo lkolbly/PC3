@@ -24,8 +24,21 @@
       Match file (optional): <input type="file" name="upl_match_file"/><br/>
       Problem name: <input type="text" name="name"/><br/>
       <input type="hidden" name="action" value="addproblem"/>
+      <!--<select type="hidden" name="problem_type">
+	<option value="JavaWithRunner">Java w/ Runner</option>
+	<option value="PythonWithInput">Python w/ Input file(s)</option>
+      </select>-->
       <input type="hidden" name="problem_type" value="java_runner"/>
       <input type="submit" value="submit">
+    </form>
+
+    <h2>Add Problem</h2>
+    <form action="" enctype="multipart/form-data" method="POST">
+      Problem Name: <input type="text" name="name"/><br/>
+      Problem Type: <select name="type"><option value="runner">With Runner</option><option value="inputfiles">Input File Archive</option></select><br/>
+      Language: <select name="language"><option value="java">Java</option><option value="python2">Python 2.7</option></select><br/>
+      <input type="hidden" name="action" value="addproblem2"/>
+      <input type="submit" value="submit"/>
     </form>
 
     <h2><a href="/results">Submissions</a> [<a href="/results?format=csv">CSV</a>]</h2>

@@ -12,6 +12,7 @@ import argparse
 import signal
 import re, StringIO, random, hashlib, base64
 import StringIO, json, csv
+import tarfile
 
 log.startLogging(sys.stdout)
 
@@ -196,11 +197,18 @@ def run_program(directory, username, problem_id, filename):
     if not problem:
         print "There is no such problem '%s'!"%problem_id
         return False
-    open("root/%s/pc3-config"%directory, "w").write(json.dumps(
-            {"program_directory": directory,
-             "lang": "JavaWithRunner",
-             "filename": filename,
-             "runner_name": problem["runner_name"]}))
+    if "Runner" in problem["type"]:
+        config = {"program_directory": directory,
+                  "lang": "JavaWithRunner",
+                  "filename": filename,
+                  "runner_name": problem["runner_name"]}
+    elif "WithInput" in problem["type"]:
+        config = {"program_directory": directory,
+                  "lang": "Python2WithInput",
+                  "filename": filename,
+                  "input_files": problem["input_files"],
+                  "problem_directory": problem["directory"]}
+    open("root/%s/pc3-config"%directory, "w").write(json.dumps(config))
     p = subprocess.Popen("sudo -u pc3-user python run-program.py", shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = p.communicate(directory)
     if stderr != "":
@@ -422,6 +430,21 @@ class PlagiarismView(resource.Resource):
         url = p.getResult()
         return "<html><body>Look at <a href='%s'>%s</a></body></html>"%(url,url)
 
+def getFields(request, fields):
+    l = []
+    form_contents = request.content.read()
+    for field in fields:
+        name = field
+        parts = name.split(":")
+        if len(parts) == 1:
+            l.append(request.args.get(parts[0], [None])[0])
+            pass
+        elif parts[0] == "file":
+            l.append(getFileFromRequest(request, parts[1], contents=form_contents))
+            pass
+        pass
+    return tuple(l)
+
 class AdminView(resource.Resource):
     isLeaf = True
     def render_GET(self, request):
@@ -484,6 +507,63 @@ class AdminView(resource.Resource):
             db.problems.insert(problem)
             return templator.render("admin-action.html", {"action": "addproblem",
                                                           "problem_name": name})
+        elif action == "addproblem2":
+            name = request.args["name"][0]
+            type = request.args["type"][0]
+            language = request.args["language"][0]
+            return templator.render("edit-problem.html", {"name": name,
+                                                          "type": type,
+                                                          "language": language})
+        elif action == "submitproblem":
+            name, type, language, runner_file, match_file, archive_file = getFields(request, ["name", "type", "language", "file:runner_file", "file:match_file", "file:archive_file"])
+            if type == "runner":
+                type_desc = "Unknown"
+                if language == "java":
+                    type_desc = "JavaWithRunner"
+
+                directory = randomHash()
+                os.mkdir("data/%s/"%directory)
+                open("data/%s/%s"%(directory,runner_file[0]), "w").write(runner_file[1])
+
+                problem = {"type": type_desc, "name": name, "runner_name": runner_file[0], "directory": directory}
+                if db.problems.find_one({"name": name}) > 0:
+                    # Error!
+                    return templator.render("admin-action.html", {"action": "error",
+                                                                  "error": "That problem already exists."})
+                db.problems.insert(problem)
+                return templator.render("admin-action.html", {"action": "addproblem", "problem_name": name})
+            elif type == "inputfiles":
+                type_desc = "Unknown"
+                if language == "python2":
+                    type_desc = "Python2WithInput"
+
+                directory = randomHash()
+                os.mkdir("data/%s/"%directory)
+
+                # Save the archive
+                open("data/%s/archive.tar"%directory, "w").write(archive_file[1])
+                tar = tarfile.open("data/%s/archive.tar"%directory)
+                tar.extractall("data/%s"%directory)
+                tar.close()
+
+                # The archive should contain *.in files, matching *.out files,
+                # and a single "index" which contains a listing of said files.
+                # We should read out the index
+                try:
+                    input_files = open("data/%s/index"%directory).read().strip().split("\n")
+                except IOError:
+                    return templator.render("admin-action.html", {"action": "error", "error": "The archive file did not contain the correct files (specifically, an index file)."})
+
+                if db.problems.find_one({"name": name}) > 0:
+                    # Error!
+                    return templator.render("admin-action.html", {"action": "error",
+                                                                  "error": "That problem already exists."})
+
+                problem = {"type": type_desc, "name": name, "input_files": input_files, "directory": directory}
+                db.problems.insert(problem)
+
+                return templator.render("admin-action.html", {"action": "addproblem", "problem_name": name})
+            return "<html><body>asdf</body></html>"
 
         return "<html><body></body></html>"
 
