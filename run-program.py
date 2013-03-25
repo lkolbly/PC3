@@ -88,7 +88,7 @@ def runProgram(cmd, MAX_TIME=10.0):
     return (output, runtime, status)
 
 # Now, run stuff....
-def handle_JavaWithRunner(filename, runner_name):
+def handle_LangWithRunner(language, filename, runner_name):
     MAX_TIME = 10.0
     runtime = 0.0
     compiler_output = ""
@@ -96,7 +96,7 @@ def handle_JavaWithRunner(filename, runner_name):
     did_run = True
     output_matches = True
     try:
-        cmds = getLangWithRunnerCommands("java", filename, runner_name)
+        cmds = getLangWithRunnerCommands(language, filename, runner_name)
         for cmd in cmds["compile"]:
             if len(cmd) > 0:
                 compiler_output += "# %s\n"%str(cmd.split(" "))
@@ -107,14 +107,14 @@ def handle_JavaWithRunner(filename, runner_name):
         did_run = False
     return (did_run, compiler_output, output, runtime, output_matches)
 
-def handle_Python2WithInput(filename, input_files, redacted=True):
+def handle_LangWithInput(language, filename, input_files, redacted=True):
     runtime = 0.0
     compiler_output = ""
     output = ""
     did_run = True
     output_matches = True
     try:
-        cmds = getLangWithInputCommands("python2", filename, input_files)
+        cmds = getLangWithInputCommands(language, filename, input_files)
         for cmd in cmds["compile"]:
             if len(cmd) > 0:
                 compiler_output += "# %s\n"%str(cmd.split(" "))
@@ -137,9 +137,18 @@ def handle_Python2WithInput(filename, input_files, redacted=True):
         did_run = False
     return (did_run, compiler_output, output, runtime, output_matches)
 
-if config["lang"] == "JavaWithRunner":
-    print json.dumps(handle_JavaWithRunner(config["filename"], config["runner_name"]))
-elif config["lang"] == "Python2WithInput":
-    print json.dumps(handle_Python2WithInput(config["filename"], config["input_files"]))
+if isinstance(config["lang"], basestring):
+    if config["lang"] == "JavaWithRunner":
+        print json.dumps(handle_LangWithRunner("java", config["filename"], config["runner_name"]))
+    elif config["lang"] == "Python2WithInput":
+        print json.dumps(handle_LangWithInput("python2", config["filename"], config["input_files"]))
+    else:
+        print json.dumps({"error": "unknown language '%s'"%config["lang"]})
 else:
-    print json.dumps({"error": "unknown language '%s'"%config["lang"]})
+    if config["lang"]["type"] == "runner":
+        retval = handle_LangWithRunner(config["lang"]["lang"], config["filename"], config["runner_name"])
+    elif config["lang"]["type"] == "inputfiles":
+        retval = handle_LangWithInput(config["lang"]["lang"], config["filename"], config["input_files"])
+    else:
+        retval = {"error": "unknown language '%s'"%config["lang"]}
+    print json.dumps(retval)

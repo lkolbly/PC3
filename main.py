@@ -520,6 +520,7 @@ class AdminView(resource.Resource):
                 type_desc = "Unknown"
                 if language == "java":
                     type_desc = "JavaWithRunner"
+                type_desc = {"type": "runner", "lang": language}
 
                 directory = randomHash()
                 os.mkdir("data/%s/"%directory)
@@ -536,6 +537,7 @@ class AdminView(resource.Resource):
                 type_desc = "Unknown"
                 if language == "python2":
                     type_desc = "Python2WithInput"
+                type_desc = {"type": "inputfiles", "lang": language}
 
                 directory = randomHash()
                 os.mkdir("data/%s/"%directory)
