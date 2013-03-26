@@ -23,6 +23,7 @@ pip install pymongo
 pip install jinja
 
 # Seed the database
+cd /home/pc3/PC3
 python main.py --reset-db
 
 # Copy the init.d script

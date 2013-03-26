@@ -4,7 +4,7 @@
 # description: myapp daemon
 # processname: myapp
 
-DAEMON_PATH="/home/pc3/server/"
+DAEMON_PATH="/home/pc3/PC3/"
 
 DAEMON=./runserver.sh
 DAEMONOPTS=""
