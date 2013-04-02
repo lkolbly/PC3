@@ -1,5 +1,20 @@
 #!/bin/sh
 
+apt-get install unzip
+
+# Parse command line arguments
+latestbuild=0
+while [ $# -gt 0 ]
+do
+	case "$1" in
+		--latest) latestbuild=1;;
+		-*)       echo >&2 "usage: $0 [--latest]"
+		          exit 1;;
+		*) break;;
+	esac
+	shift
+done
+
 # This script is to be run as sudo as a post install script on Ubuntu server systems to bootstrap them for PC3.
 # Create pc3-user
 adduser --disabled-password --gecos pc3 pc3 --home /home/pc3
@@ -8,8 +23,15 @@ echo "pc3 ALL=(pc3-user) NOPASSWD: ALL" >> /etc/sudoers
 cd /home/pc3
 
 # Fetch the tarball.
-wget http://pillow.rscheme.org/PC3-latest.tar
-tar xf PC3-latest.tar
+if [ $latestbuild -eq 1 ]
+then
+	wget -O "archive.zip" https://github.com/lkolbly/PC3/archive/master.zip
+	unzip archive.zip
+	mv PC3-master PC3
+else
+	wget http://pillow.rscheme.org/PC3-latest.tar
+	tar xf PC3-latest.tar
+fi
 
 # Create the required directories
 mkdir PC3/data
